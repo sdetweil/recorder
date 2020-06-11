@@ -4,10 +4,13 @@
 const io = require("socket.io-client");
 const EventEmitter = require("events");
 const { spawn } = require("child_process");
+const getPort = require("get-port");
 
-function recorder(host, port) {
-	this.host = "http://" + (host ? host : "localhost");
-	this.port = port;
+console.log("our location=" + __dirname);
+function recorder(smart_mirror_remote_port) {
+	this.host = "http://localhost";
+	this.sm_port = smart_mirror_remote_port + 1;
+	this.port = 0;
 	this.ioClient = null;
 	this.voiceClient = null;
 	this.Emitter = null;
@@ -26,7 +29,7 @@ function recorder(host, port) {
 			// indicate we have no hotwords
 			//console.log("got info");
 
-			this.startSonus(this.port - 2);
+			this.startSonus(this.port);
 			this.ready = true;
 		});
 
@@ -72,8 +75,24 @@ function recorder(host, port) {
 	this.startSonus = function (socketNumber) {
 		// Initilize the keyword spotter
 		//console.log("process starting in the background")
-		this.kwsProcess = spawn("node", ["./sonus.js", socketNumber], {
-			detached: false,
+		this.kwsProcess = spawn(
+			"node",
+			[__dirname + "/sonus.js", socketNumber],
+			{
+				detached: false,
+			}
+		);
+		this.kwsProcess.on("error", (err) => {
+			console.error("assistant spawn err: ", err);
+		});
+		this.kwsProcess.on("exit", (code, signal) => {
+			if (code) {
+				console.error("assistant Child exited with code", code);
+			} else if (signal) {
+				console.error("assistant Child was killed with signal", signal);
+			} else {
+				console.log("assistant Child exited okay");
+			}
 		});
 		this.waitSocket(socketNumber);
 	};
@@ -86,20 +105,37 @@ recorder.prototype.open = function () {
 		this.reject = reject;
 		// tool to talk to our consumer
 		this.Emitter = new EventEmitter();
-		// io clicne to bnackground sonus
-		this.ioClient = io.connect(this.host + ":" + this.port);
 
-		// setup the handlers
-		this.init();
+		console.log("assistant requesting port");
+		// ask for a range
 		var self = this;
-		// do this last, prevent race condition of server sending back
-		this.timerHandle = setTimeout(function () {
-			self.reject("no response");
-		}, 1500);
-		// connect to the sonus process and get its config info
-		this.ioClient.emit("getinfo");
-		// we start idle
-		this.recording = false;
+		getPort({ port: getPort.makeRange(5100, 5200) })
+			.then((port) => {
+				// use first available
+				console.log("assistant have available ports =", port);
+				self.port = port;
+				console.log("assistant have available port=" + self.port);
+
+				// io client to background sonus
+				self.ioClient = io.connect(self.host + ":" + this.sm_port);
+
+				// setup the handlers
+				self.init();
+
+				// do this last, prevent race condition of server sending back
+
+				self.timerHandle = setTimeout(function () {
+					self.reject("no response");
+				}, 1500);
+
+				// connect to the sonus process and get its config info
+				self.ioClient.emit("getinfo");
+				// we start idle
+				self.recording = false;
+			})
+			.catch((error) => {
+				console.log("assistant port request failed=" + error);
+			});
 	});
 };
 recorder.prototype.start = function () {
