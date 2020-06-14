@@ -11,6 +11,7 @@ if (redebug) console.log("our location=" + __dirname);
 
 // gets the port where the stock SM rec process is running
 // and the socket.io port is up 1
+
 function recorder(smart_mirror_remote_port) {
 	this.host = "http://localhost";
 	this.sm_port = smart_mirror_remote_port - 1;
@@ -57,10 +58,12 @@ function recorder(smart_mirror_remote_port) {
 	this.waitSocket = function (socket) {
 		var self = this;
 		if (redebug) console.log("enter wait socket=" + socket);
+
 		// if we haven't connected to our reco process yet
 		if (!this.voiceClient) {
 			if (redebug) console.log("host=" + this.host + ":" + socket);
 			// connect now (we passed this same port number on its startup, so we should be in synch)
+
 			this.voiceClient = io.connect(this.host + ":" + socket);
 			if (redebug)
 				console.log("connecting to the voice client socket =" + socket);
@@ -120,6 +123,7 @@ function recorder(smart_mirror_remote_port) {
 	};
 	this.startRecognizerProcess = function (socketNumber) {
 		// Initilize the keyword spotter
+
 		if (redebug) console.log("process starting in the background");
 		// if we should start the background
 		// (for debug we can manually launch one in the foreground to see the log)
