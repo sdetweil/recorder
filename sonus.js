@@ -116,6 +116,7 @@ control.io.on("connection", function (socket) {
 	socket.on("stop", function () {
 		if (debug) console.log("stop requested");
 		// stop our reco handler
+		console.log("start should be 1=" + started);
 		if (started == 1) {
 			Sonus.stop();
 			--started;
@@ -127,6 +128,7 @@ control.io.on("connection", function (socket) {
 	socket.on("start", function () {
 		if (debug) console.log("start requested");
 		// start our reco handler
+		console.log("start should be 0=" + started);
 		if (started++ == 0) Sonus.start(sonus);
 		// tell client reco started
 		socket.emit("started");

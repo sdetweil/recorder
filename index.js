@@ -3,8 +3,9 @@
 
 const io = require("socket.io-client");
 const EventEmitter = require("events");
-const { spawn } = require("child_process");
+const { spawn, exec, spawnSync } = require("child_process");
 const getPort = require("get-port");
+const psleep = require("sleep");
 const create_reco_process = false;
 const redebug = true;
 if (redebug) console.log("our location=" + __dirname);
@@ -23,10 +24,83 @@ function recorder(smart_mirror_remote_port) {
 	this.ready = false;
 	this.kwsProcess = null;
 
+	const sleepAndCheck = (cmd, ms) => {
+		psleep.msleep(ms);
+		return spawnSync(cmd, { shell: true });
+	};
+
+	const waitRunning = (query, target, timeout) => {
+		return new Promise((resolve, reject) => {
+			let platform = process.platform;
+			let cmd = "";
+			switch (platform) {
+				case "win32":
+					cmd = `tasklist`;
+					break;
+				case "darwin":
+					cmd = `bash -c "ps -ax | grep ${query}"`;
+					break;
+				case "linux":
+					cmd = `ps -A | grep ${query}| tr -d '\n'`;
+					break;
+				default:
+					break;
+			}
+
+			let delay = 100;
+			let found = false;
+			console.log(
+				" checking on recorder " + target
+					? "running still"
+					: "Not running"
+			);
+			while (timeout > 0) {
+				let r = sleepAndCheck(cmd, delay);
+				//r.stdout=r.buffer.toString()
+				console.log(
+					"process list ='" + r.stdout + "' error=" + r.stderr
+				);
+				// check the cmd results
+				if (target == false) {
+					if (
+						r.stdout
+							.toString()
+							.toLowerCase()
+							.indexOf(query.toLowerCase()) == -1
+					) {
+						console.log(query + " not running now");
+						resolve();
+						found = true;
+						break;
+					}
+				} else {
+					console.log(
+						" stdout=" + r.stdout.toString() + " test for " + query
+					);
+					let s = r.stdout.toString();
+					if (s.toLowerCase().indexOf(query.toLowerCase()) > -1) {
+						console.log(" found '" + query + "'");
+						resolve();
+						found = true;
+						break;
+					}
+				}
+				timeout -= delay;
+				console.log("adjusting remaining delay");
+			}
+			// thru whole delay, failed
+			if (!found) {
+				console.log("test for ${query} not found again");
+				reject("timeout");
+			}
+		});
+	};
+
 	this.init = function () {
 		this.ioClient.on("connected", (socket) => {
 			//if(redebug)
 			console.log("connected");
+			clearTimeout(this.timerHandle);
 		});
 
 		// background sonus process sends its config info
@@ -45,9 +119,19 @@ function recorder(smart_mirror_remote_port) {
 			// background task paused
 			// start our reco engine
 			//if(redebug)
-			console.log("background recorder stopped, start ours");
-			this.voiceClient.emit("start");
-			this.recording = true;
+			waitRunning("arecord", false, 1000).then(
+				() => {
+					console.log("background recorder stopped, start ours");
+					this.voiceClient.emit("start");
+					this.recording = true;
+				},
+				() => {
+					console.log(
+						"main recorder hasn't stopped yet, lets try again"
+					);
+					this.ioClient.emit("stop");
+				}
+			);
 		});
 
 		this.ioClient.on("started", () => {
@@ -69,7 +153,7 @@ function recorder(smart_mirror_remote_port) {
 				console.log("connecting to the voice client socket =" + socket);
 			this.timer = setTimeout(function () {
 				self.waitSocket(socket);
-			}, 500);
+			}, 1500);
 		} else {
 			if (redebug) console.log("have the voice client socket");
 			clearTimeout(this.timer);
@@ -102,6 +186,21 @@ function recorder(smart_mirror_remote_port) {
 				this.Emitter.emit("error", error);
 			});
 
+			this.voiceClient.on("started", (error) => {
+				// pass it on
+				if (redebug) console.log("our recorder says it started ");
+				waitRunning("arecord", true, 1000).then(
+					() => {
+						console.log("our recorder did start");
+						this.recording = true;
+					},
+					() => {
+						console.log("our recorder did NOT start, trying again");
+						this.voiceClient.emit("start");
+					}
+				);
+			});
+
 			// our background responds stopped to the final-text event stop that was sent
 			this.voiceClient.on("stopped", () => {
 				// turn back on the mirrors engine
@@ -109,13 +208,17 @@ function recorder(smart_mirror_remote_port) {
 				if (redebug) console.log("assistant pause to restart");
 				let self = this;
 				// 200ms quiet time
-				setTimeout(() => {
-					if (redebug) console.log("assistant restarting base reco");
-					// tell the smart mirror reco engine to resume now
-					self.ioClient.emit("start");
-					if (redebug)
-						console.log("assistant start sent to base reco");
-				}, 100);
+				waitRunning("arecord", false, 1000).then(
+					() => {
+						if (redebug)
+							console.log("assistant restarting base reco");
+						// tell the smart mirror reco engine to resume now
+						self.ioClient.emit("start");
+					},
+					() => {
+						console.log("assistant recorder hasn't stopped yet");
+					}
+				);
 			});
 			// we can tell the app client to use this emitter for incoming text events
 			this.resolve(this.Emitter);
@@ -189,7 +292,7 @@ recorder.prototype.open = function () {
 
 				self.timerHandle = setTimeout(function () {
 					self.reject("no response");
-				}, 1500);
+				}, 8000);
 
 				// connect to the sonus process and get its config info
 				self.ioClient.emit("getinfo");
