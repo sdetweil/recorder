@@ -5,6 +5,15 @@ const fs = require("fs");
 const path = require("path");
 var rootpath = ".";
 let config;
+let first = true;
+console.log("arg=" + process.argv[3]);
+let debug =
+	process.argv.length > 3
+		? process.argv[3] == "true"
+			? true
+			: false
+		: false;
+console.log("debug=" + debug);
 var vn = path.resolve(rootpath, "config.json");
 //console.log("path="+vn)
 try {
@@ -28,7 +37,8 @@ var keyFile = JSON.parse(
 );
 
 // Configure Sonus
-const Sonus = require(path.resolve(rootpath, "node_modules", "sonus"));
+//const Sonus = require(path.resolve(rootpath, "node_modules", "sonus"));
+const Sonus = require("sonus");
 const speech = require(path.resolve(
 	rootpath,
 	"node_modules",
@@ -47,13 +57,17 @@ const recordProgram =
 		: "rec";
 const device = config.speech.device != "" ? config.speech.device : "default";
 
-var hotwords = -1;
-const sonus = Sonus.init({ hotwords, language, recordProgram, device }, client);
+//var hotwords = -1;
+const sonus = Sonus.init(
+	{ hotwords: -1, language, recordProgram, device },
+	client
+);
 
 // Event IPC
-sonus.on("partial-result", (result) => {});
-sonus.on("final-result", (result) => console.log("text", result));
+
 sonus.on("error", (error) => console.error("!e:", error));
+sonus.on("partial-result", (result) => {});
+sonus.on("final-result", (result) => {});
 
 // add support for plugins needing conversational voice support
 const express = require(path.resolve(rootpath, "node_modules", "express"));
@@ -66,27 +80,44 @@ var control = {};
 control.io = require(path.resolve(rootpath, "node_modules", "socket.io"))(
 	server
 );
-
+if (debug) console.log("waiting for connection");
 control.io.on("connection", function (socket) {
+	if (debug) console.log("connected");
+	socket.emit("connected");
+	// only register handlers once
+	//if (first) {
+	first = false;
+	sonus.on("partial-result", (result) => {
+		if (debug)
+			console.log("received partial content from reco engine=" + result);
+		// send reco result to socket endpoint
+		socket.emit("partial-text", result);
+	});
 	// send reco result to socket endpoint
 	sonus.on("final-result", (result) => {
-		//		console.log("received content="+result);
-		socket.emit("text", result);
+		if (debug)
+			console.log("received final content from reco engine=" + result);
+		// send reco result to socket endpoint
+		socket.emit("final-text", result);
 	});
-	console.log("incoming connection");
-	//console.log("connected")
-	socket.emit("connected");
 
 	// stop listening for phrases for our app
 	socket.on("stop", function () {
-		//			console.log("stop requested")
+		if (debug) console.log("stop requested");
+		// stop our reco handler
 		Sonus.stop();
 		socket.emit("stopped");
 	});
 	// start listening for phrase for our app
 	socket.on("start", function () {
-		//			console.log("start requested")
+		if (debug) console.log("start requested");
+		// start our reco handler
 		Sonus.start(sonus);
 		socket.emit("started");
 	});
+	//}
+});
+control.io.on("disconnect", function (socket) {
+	console.log("client disconnected, cleanup");
+	socket.removeAllListeners();
 });
