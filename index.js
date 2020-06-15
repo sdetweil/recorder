@@ -50,16 +50,14 @@ function recorder(smart_mirror_remote_port) {
 			let delay = 100;
 			let found = false;
 			console.log(
-				" checking on recorder " + target
-					? "running still"
-					: "Not running"
+				" checking on recorder is " + target
+					? ""
+					: "not" + " running still"
 			);
 			while (timeout > 0) {
 				let r = sleepAndCheck(cmd, delay);
 				//r.stdout=r.buffer.toString()
-				console.log(
-					"process list ='" + r.stdout + "' error=" + r.stderr
-				);
+				console.log("process list ='" + r.stdout + "'");
 				// check the cmd results
 				if (target == false) {
 					if (
@@ -68,18 +66,21 @@ function recorder(smart_mirror_remote_port) {
 							.toLowerCase()
 							.indexOf(query.toLowerCase()) == -1
 					) {
-						console.log(query + " not running now");
+						console.log(query + " is not running now");
 						resolve();
 						found = true;
 						break;
 					}
 				} else {
 					console.log(
-						" stdout=" + r.stdout.toString() + " test for " + query
+						" testing for '" +
+							query +
+							"' in stdout=" +
+							r.stdout.toString()
 					);
 					let s = r.stdout.toString();
 					if (s.toLowerCase().indexOf(query.toLowerCase()) > -1) {
-						console.log(" found '" + query + "'");
+						console.log(" found '" + query + "' running");
 						resolve();
 						found = true;
 						break;
@@ -90,7 +91,7 @@ function recorder(smart_mirror_remote_port) {
 			}
 			// thru whole delay, failed
 			if (!found) {
-				console.log("test for ${query} not found again");
+				console.log("test for '" + query + "' was not found ");
 				reject("timeout");
 			}
 		});
@@ -176,9 +177,17 @@ function recorder(smart_mirror_remote_port) {
 						"assistant received final text from reco engine=" +
 							message
 					);
-				this.Emitter.emit("final", message);
-				// turn off our reco engine
-				this.voiceClient.emit("stop");
+				if (message != "") {
+					this.Emitter.emit("final", message);
+					// turn off our reco engine
+					this.voiceClient.emit("stop");
+				} else {
+					if (redebug)
+						console.log(
+							"assistant ignoring final text from reco engine=" +
+								message
+						);
+				}
 			});
 
 			this.voiceClient.on("error", (error) => {
@@ -205,7 +214,8 @@ function recorder(smart_mirror_remote_port) {
 			this.voiceClient.on("stopped", () => {
 				// turn back on the mirrors engine
 
-				if (redebug) console.log("assistant pause to restart");
+				if (redebug)
+					console.log("assistant check for our recorder stopped");
 				let self = this;
 				// 200ms quiet time
 				waitRunning("arecord", false, 1000).then(
@@ -216,7 +226,9 @@ function recorder(smart_mirror_remote_port) {
 						self.ioClient.emit("start");
 					},
 					() => {
-						console.log("assistant recorder hasn't stopped yet");
+						console.log(
+							"assistant our recorder hasn't stopped yet"
+						);
 					}
 				);
 			});
@@ -314,7 +326,7 @@ recorder.prototype.start = function () {
 };
 // not sure what to do here
 recorder.prototype.stop = function () {
-	if (redebug) console.log("stop");
+	if (redebug) console.log("speech service requests stop");
 	this.ioClient.emit("start");
 };
 // not sure what to do here

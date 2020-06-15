@@ -116,9 +116,9 @@ control.io.on("connection", function (socket) {
 	socket.on("stop", function () {
 		if (debug) console.log("stop requested");
 		// stop our reco handler
-		console.log("start should be 1=" + started);
+		if (debug) console.log("start should be 1=" + started);
 		if (started == 1) {
-			Sonus.stop();
+			Sonus.stop(sonus);
 			--started;
 		}
 		// tell client reco stopped
@@ -128,14 +128,19 @@ control.io.on("connection", function (socket) {
 	socket.on("start", function () {
 		if (debug) console.log("start requested");
 		// start our reco handler
-		console.log("start should be 0=" + started);
+		if (debug) console.log("start should be 0=" + started);
 		if (started++ == 0) Sonus.start(sonus);
 		// tell client reco started
 		socket.emit("started");
 	});
+	// when the client disconnects
 	socket.on("disconnect", () => {
 		if (debug) console.log("client disconnected");
+		// reset the  state glaf
+		started = 0;
+		// make sure to clean up listeners
 		socket.removeAllListeners();
+		// take the socket out of the set of actives
 		connections.delete(socket);
 	});
 });
