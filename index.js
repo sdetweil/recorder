@@ -6,7 +6,7 @@ const EventEmitter = require("events");
 const { spawn, exec, spawnSync } = require("child_process");
 const getPort = require("get-port");
 const psleep = require("sleep");
-const create_reco_process = false;
+const create_reco_process = true;
 const redebug = true;
 if (redebug) console.log("our location=" + __dirname);
 
@@ -284,7 +284,7 @@ recorder.prototype.open = function () {
 		// get a free port
 		getPort({ port: getPort.makeRange(5100, 5200) })
 			.then((port) => {
-				port = 5100;
+				if (!create_reco_process) port = 5100;
 				// use first available
 				if (redebug)
 					console.log("assistant have available ports =", port);
