@@ -6,14 +6,14 @@ const EventEmitter = require("events");
 const { spawn, exec, spawnSync } = require("child_process");
 const getPort = require("get-port");
 const psleep = require("sleep");
-const create_reco_process = true;
+const create_reco_process = false;
 const redebug = true;
 if (redebug) console.log("our location=" + __dirname);
 
 // gets the port where the stock SM rec process is running
 // and the socket.io port is up 1
 
-function recorder(smart_mirror_remote_port) {
+function recorder(smart_mirror_remote_port, filename) {
 	this.host = "http://localhost";
 	this.sm_port = smart_mirror_remote_port - 1;
 	this.port = 0;
@@ -23,6 +23,8 @@ function recorder(smart_mirror_remote_port) {
 	this.recording = false;
 	this.ready = false;
 	this.kwsProcess = null;
+	// indicates raw or text output
+	this.rawFilename = filename;
 
 	const sleepAndCheck = (cmd, ms) => {
 		psleep.msleep(ms);
@@ -123,7 +125,7 @@ function recorder(smart_mirror_remote_port) {
 			waitRunning("arecord", false, 1000).then(
 				() => {
 					console.log("background recorder stopped, start ours");
-					this.voiceClient.emit("start");
+					this.voiceClient.emit("start", this.rawFilename);
 					this.recording = true;
 				},
 				() => {
@@ -164,8 +166,7 @@ function recorder(smart_mirror_remote_port) {
 			this.voiceClient.on("partial-text", (message) => {
 				if (redebug)
 					console.log(
-						"assistant received partial text from reco engine=" +
-							message
+						" received partial text from reco engine=" + message
 					);
 				this.Emitter.emit("partial", message);
 				// turn off our reco engine
@@ -174,22 +175,30 @@ function recorder(smart_mirror_remote_port) {
 			this.voiceClient.on("final-text", (message) => {
 				if (redebug)
 					console.log(
-						"assistant received final text from reco engine=" +
-							message
+						" received final text from reco engine=" + message
 					);
 				if (message != "") {
 					this.Emitter.emit("final", message);
 					// turn off our reco engine
-					this.voiceClient.emit("stop");
+					this.voiceClient.emit("stop", this.rawFilename);
 				} else {
 					if (redebug)
 						console.log(
-							"assistant ignoring final text from reco engine=" +
-								message
+							" ignoring final text from reco engine=" + message
 						);
 				}
 			});
 
+			this.voiceClient.on("ended", (filename) => {
+				// raw record completed
+				this.Emitter.emit("final_audio", filename);
+				// tell voiceclient to unhook mic
+				this.voiceClient.emit("stop", filename);
+				if (redebug)
+					console.log(
+						" received raw audio from reco engine=" + filename
+					);
+			});
 			this.voiceClient.on("error", (error) => {
 				// pass it on
 				this.Emitter.emit("error", error);
@@ -205,7 +214,7 @@ function recorder(smart_mirror_remote_port) {
 					},
 					() => {
 						console.log("our recorder did NOT start, trying again");
-						this.voiceClient.emit("start");
+						this.voiceClient.emit("start", this.rawFilename);
 					}
 				);
 			});
@@ -214,21 +223,17 @@ function recorder(smart_mirror_remote_port) {
 			this.voiceClient.on("stopped", () => {
 				// turn back on the mirrors engine
 
-				if (redebug)
-					console.log("assistant check for our recorder stopped");
+				if (redebug) console.log(" check for our recorder stopped");
 				let self = this;
 				// 200ms quiet time
 				waitRunning("arecord", false, 1000).then(
 					() => {
-						if (redebug)
-							console.log("assistant restarting base reco");
+						if (redebug) console.log(" restarting base reco");
 						// tell the smart mirror reco engine to resume now
 						self.ioClient.emit("start");
 					},
 					() => {
-						console.log(
-							"assistant our recorder hasn't stopped yet"
-						);
+						console.log(" our recorder hasn't stopped yet");
 					}
 				);
 			});
@@ -243,28 +248,28 @@ function recorder(smart_mirror_remote_port) {
 		// if we should start the background
 		// (for debug we can manually launch one in the foreground to see the log)
 		if (create_reco_process) {
-			this.kwsProcess = spawn(
-				"node",
-				[__dirname + "/sonus.js", socketNumber],
-				{
-					detached: false,
-				}
-			);
-			this.kwsProcess.on("error", (err) => {
-				console.error("assistant spawn err: ", err);
-			});
-			this.kwsProcess.on("exit", (code, signal) => {
-				if (code) {
-					console.error("assistant Child exited with code", code);
-				} else if (signal) {
-					console.error(
-						"assistant Child was killed with signal",
-						signal
-					);
-				} else {
-					if (redebug) console.log("assistant Child exited okay");
-				}
-			});
+			// if not already created (alexa and assistant both use it)
+			if (!this.kwsProcess) {
+				this.kwsProcess = spawn(
+					"node",
+					[__dirname + "/sonus.js", socketNumber],
+					{
+						detached: false,
+					}
+				);
+				this.kwsProcess.on("error", (err) => {
+					console.error(" spawn err: ", err);
+				});
+				this.kwsProcess.on("exit", (code, signal) => {
+					if (code) {
+						console.error(" Child exited with code", code);
+					} else if (signal) {
+						console.error(" Child was killed with signal", signal);
+					} else {
+						if (redebug) console.log(" Child exited okay");
+					}
+				});
+			}
 		}
 		this.waitSocket(socketNumber);
 	};
@@ -278,7 +283,7 @@ recorder.prototype.open = function () {
 		// tool to talk to our consumer
 		this.Emitter = new EventEmitter();
 
-		if (redebug) console.log("assistant requesting port");
+		if (redebug) console.log(" requesting port");
 		// ask for a range
 		var self = this;
 		// get a free port
@@ -286,13 +291,11 @@ recorder.prototype.open = function () {
 			.then((port) => {
 				if (!create_reco_process) port = 5100;
 				// use first available
-				if (redebug)
-					console.log("assistant have available ports =", port);
+				if (redebug) console.log(" have available ports =", port);
 				// wil be the port we use for OUR reco engine control
 				self.port = port;
 
-				if (redebug)
-					console.log("assistant have available port=" + self.port);
+				if (redebug) console.log(" have available port=" + self.port);
 				// connect to the smart-mirror reco process
 				// io client to background sonus
 				self.ioClient = io.connect(self.host + ":" + this.sm_port);
@@ -312,8 +315,7 @@ recorder.prototype.open = function () {
 				self.recording = false;
 			})
 			.catch((error) => {
-				if (redebug)
-					console.log("assistant port request failed=" + error);
+				if (redebug) console.log(" port request failed=" + error);
 			});
 	});
 };

@@ -3,6 +3,7 @@
 const os = require("os");
 const fs = require("fs");
 const path = require("path");
+const record = require("node-record-lpcm16");
 var rootpath = ".";
 let config;
 let first = true;
@@ -94,8 +95,10 @@ sonus.on("final-result", (result) => {
 const express = require(path.resolve(rootpath, "node_modules", "express"));
 const app = express();
 const server = require("http").createServer(app);
+var rawStream = null;
 
 // Start the server, port passed in
+console.log("listening on port=" + process.argv[2]);
 server.listen(process.argv[2]);
 var started = 0;
 var control = {};
@@ -113,23 +116,27 @@ control.io.on("connection", function (socket) {
 	// save the socket for communications back
 	connections.add(socket);
 	// stop listening for phrases for our app
-	socket.on("stop", function () {
+	socket.on("stop", function (type) {
 		if (debug) console.log("stop requested");
 		// stop our reco handler
 		if (debug) console.log("start should be 1=" + started);
 		if (started == 1) {
-			Sonus.stop(sonus);
+			if (!type) Sonus.stop(sonus);
+			else record.stop();
 			--started;
 		}
 		// tell client reco stopped
 		socket.emit("stopped");
 	});
 	// start listening for phrase for our app
-	socket.on("start", function () {
+	socket.on("start", function (filename) {
 		if (debug) console.log("start requested");
 		// start our reco handler
 		if (debug) console.log("start should be 0=" + started);
-		if (started++ == 0) Sonus.start(sonus);
+		if (started++ == 0) {
+			if (filename) raw_record(socket, filename);
+			else Sonus.start(sonus);
+		}
 		// tell client reco started
 		socket.emit("started");
 	});
@@ -144,3 +151,26 @@ control.io.on("connection", function (socket) {
 		connections.delete(socket);
 	});
 });
+function raw_record(socket, filename) {
+	const file = fs.createWriteStream(filename, { encoding: "binary" });
+
+	rawStream = record.start({
+		threshold: 0,
+		device: device || null,
+		recordProgram: recordProgram || "rec",
+		silence: 1.0,
+		verbose: false,
+	});
+
+	rawStream.pipe(file);
+
+	setTimeout(() => {
+		console.log("stopping stream");
+		rawStream.unpipe(file);
+		record.stop();
+	}, 3000);
+	rawStream.on("end", () => {
+		console.log("recorder stream ended");
+		socket.emit("ended", filename);
+	});
+}
