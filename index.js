@@ -6,7 +6,7 @@ const EventEmitter = require("events");
 const { spawn, exec, spawnSync } = require("child_process");
 const getPort = require("get-port");
 const psleep = require("sleep");
-const create_reco_process = false;
+const create_reco_process = true;
 const redebug = true;
 if (redebug) console.log("our location=" + __dirname);
 
