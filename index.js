@@ -13,16 +13,17 @@ if (redebug) console.log("our location=" + __dirname);
 // gets the port where the stock SM rec process is running
 // and the socket.io port is up 1
 
+var kwsProcess = null;
+var kwsPort = null;
 function recorder(smart_mirror_remote_port, filename) {
 	this.host = "http://localhost";
 	this.sm_port = smart_mirror_remote_port - 1;
-	this.port = 0;
 	this.ioClient = null;
 	this.voiceClient = null;
 	this.Emitter = null;
 	this.recording = false;
 	this.ready = false;
-	this.kwsProcess = null;
+	//this.kwsProcess = null;
 	// indicates raw or text output
 	this.rawFilename = filename;
 
@@ -113,7 +114,7 @@ function recorder(smart_mirror_remote_port, filename) {
 			//if(redebug)
 			console.log("got info");
 
-			this.startRecognizerProcess(this.port);
+			this.startRecognizerProcess(kwsPort);
 			this.ready = true;
 		});
 
@@ -249,18 +250,18 @@ function recorder(smart_mirror_remote_port, filename) {
 		// (for debug we can manually launch one in the foreground to see the log)
 		if (create_reco_process) {
 			// if not already created (alexa and assistant both use it)
-			if (!this.kwsProcess) {
-				this.kwsProcess = spawn(
+			if (!kwsProcess) {
+				kwsProcess = spawn(
 					"node",
 					[__dirname + "/sonus.js", socketNumber],
 					{
 						detached: false,
 					}
 				);
-				this.kwsProcess.on("error", (err) => {
+				kwsProcess.on("error", (err) => {
 					console.error(" spawn err: ", err);
 				});
-				this.kwsProcess.on("exit", (code, signal) => {
+				kwsProcess.on("exit", (code, signal) => {
 					if (code) {
 						console.error(" Child exited with code", code);
 					} else if (signal) {
@@ -293,9 +294,8 @@ recorder.prototype.open = function () {
 				// use first available
 				if (redebug) console.log(" have available ports =", port);
 				// wil be the port we use for OUR reco engine control
-				self.port = port;
-
-				if (redebug) console.log(" have available port=" + self.port);
+				kwsPort = port;
+				if (redebug) console.log(" have available port=" + kwsPort);
 				// connect to the smart-mirror reco process
 				// io client to background sonus
 				self.ioClient = io.connect(self.host + ":" + this.sm_port);
