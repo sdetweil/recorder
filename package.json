@@ -1,6 +1,6 @@
 {
   "name": "recorder",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "cloud voice reco using sonus, no hotword ",
   "main": "index.js",
   "scripts": {
@@ -14,13 +14,14 @@
   "author": "sam detweiler",
   "license": "ISC",
   "dependencies": {
-    "electron-rebuild": "^1.11.0",
     "events": "^3.1.0",
     "get-port": "^5.1.1",
     "path": "^0.12.7",
     "prettier": "^2.0.5",
-    "sleep": "^6.2.0",
-    "socket.io-client": "^2.3.0",
+    "socket.io-client": "2.3.0",
     "sonus": "git+https://github.com/sdetweil/sonus.git"
+  },
+  "dev-dependencies" :{
+    "electron-rebuild": "^1.11.0"
   }
 }

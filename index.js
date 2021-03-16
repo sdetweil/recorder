@@ -2,12 +2,11 @@
 // My module
 
 const io = require("socket.io-client");
-const EventEmitter = require("events");
+const _reEventEmitter = require("events");
 const { spawn, exec, spawnSync } = require("child_process");
 const getPort = require("get-port");
-const psleep = require("sleep");
 const create_reco_process = true;
-const redebug = true;
+const redebug = false;
 if (redebug) console.log("our location=" + __dirname);
 
 // gets the port where the stock SM rec process is running
@@ -17,8 +16,8 @@ var kwsProcess = null;
 var kwsPort = null;
 function recorder(smart_mirror_remote_port, filename) {
 	this.host = "http://localhost";
-	this.sm_port = smart_mirror_remote_port - 1;
-	this.ioClient = null;
+	this.sm_port = smart_mirror_remote_port;
+	this.smSonus = null;
 	this.voiceClient = null;
 	this.Emitter = null;
 	this.recording = false;
@@ -26,10 +25,15 @@ function recorder(smart_mirror_remote_port, filename) {
 	//this.kwsProcess = null;
 	// indicates raw or text output
 	this.rawFilename = filename;
+	this.recoProgram = "";
 
 	const sleepAndCheck = (cmd, ms) => {
-		psleep.msleep(ms);
-		return spawnSync(cmd, { shell: true });
+		return new Promise((resolve, reject) => {
+			setTimeout(() => {
+				let pid = spawnSync(cmd, { shell: true });
+				resolve(pid);
+			}, ms);
+		});
 	};
 
 	const waitRunning = (query, target, timeout) => {
@@ -51,95 +55,125 @@ function recorder(smart_mirror_remote_port, filename) {
 			}
 
 			let delay = 100;
-			let found = false;
-			console.log(
-				" checking on recorder is " + target
-					? ""
-					: "not" + " running still"
-			);
-			while (timeout > 0) {
-				let r = sleepAndCheck(cmd, delay);
-				//r.stdout=r.buffer.toString()
-				console.log("process list ='" + r.stdout + "'");
-				// check the cmd results
-				if (target == false) {
-					if (
-						r.stdout
-							.toString()
-							.toLowerCase()
-							.indexOf(query.toLowerCase()) == -1
-					) {
-						console.log(query + " is not running now");
-						resolve();
-						found = true;
-						break;
-					}
-				} else {
-					console.log(
-						" testing for '" +
-							query +
-							"' in stdout=" +
-							r.stdout.toString()
-					);
-					let s = r.stdout.toString();
-					if (s.toLowerCase().indexOf(query.toLowerCase()) > -1) {
-						console.log(" found '" + query + "' running");
-						resolve();
-						found = true;
-						break;
-					}
-				}
-				timeout -= delay;
-				console.log("adjusting remaining delay");
-			}
-			// thru whole delay, failed
-			if (!found) {
-				console.log("test for '" + query + "' was not found ");
-				reject("timeout");
-			}
-		});
+			if (redebug)
+				console.log(
+					" checking on recorder is " + target
+						? ""
+						: "not" + " running still"
+				);
+			// wait some time for processes to start
+			let timerHandle = setInterval(
+				() => {
+					// start one and check if its running
+					sleepAndCheck(cmd, delay).then((r) => {
+						//r.stdout=r.buffer.toString()
+						if (redebug)
+							console.log(
+								"recorder process list ='" + r.stdout + "'"
+							);
+						// check the cmd results
+						let s = r.stdout.toString().toLowerCase();
+						if (target == false) {
+							if (s.indexOf(query.toLowerCase()) == -1) {
+								if (redebug)
+									console.log(
+										"recorder " +
+											query +
+											" is not running now"
+									);
+								clearTimeout(timerHandle);
+								resolve();
+								return;
+							}
+						} else {
+							if (redebug)
+								console.log(
+									" testing for '" +
+										query +
+										"' in stdout=" +
+										r.stdout.toString()
+								);
+							if (s.indexOf(query.toLowerCase()) > -1) {
+								if (redebug)
+									console.log(
+										" recorder found '" +
+											query +
+											"' running"
+									);
+								clearTimeout(timerHandle);
+								resolve();
+								return;
+							}
+						}
+						timeout -= delay;
+						if (redebug)
+							console.log("recorder adjusting remaining delay");
+						// thru whole delay, failed
+						if (timeout <= 0) {
+							if (redebug)
+								console.log(
+									"recorder test for '" +
+										query +
+										"' was not found "
+								);
+							clearTimeout(timerHandle);
+							reject("timeout");
+							return;
+						}
+					}); // end of sleep and check then
+				}, // end iunterval handler
+				delay
+			); // end setInterval
+		}); // end promise
 	};
 
 	this.init = function () {
-		this.ioClient.on("connected", (socket) => {
-			//if(redebug)
-			console.log("connected");
+		this.smSonus.on("connected", (socket) => {
+			if (redebug) console.log("recorder connected to sm sonus");
 			clearTimeout(this.timerHandle);
 		});
 
 		// background sonus process sends its config info
 		// so we don't have to figure out differently
-		this.ioClient.on("info", (info) => {
+		this.smSonus.on("info", (info) => {
 			// indicate we have no hotwords
-			//if(redebug)
-			console.log("got info");
 
+			this.recoProgram = info.reco;
+			if (redebug)
+				console.log(
+					"recorder got info from sm sonus = " +
+						JSON.stringify(info) +
+						"recoProgram=" +
+						this.recoProgram
+				);
 			this.startRecognizerProcess(kwsPort);
 			this.ready = true;
 		});
 
 		// start our recorder
-		this.ioClient.on("stopped", () => {
+		this.smSonus.on("stopped", () => {
 			// background task paused
 			// start our reco engine
-			//if(redebug)
-			waitRunning("arecord", false, 1000).then(
+
+			waitRunning(this.recoProgram, false, 1000).then(
 				() => {
-					console.log("background recorder stopped, start ours");
+					if (redebug)
+						console.log("background recorder stopped, start ours");
 					this.voiceClient.emit("start", this.rawFilename);
 					this.recording = true;
 				},
 				() => {
-					console.log(
-						"main recorder hasn't stopped yet, lets try again"
-					);
-					this.ioClient.emit("stop");
+					if (redebug)
+						console.log(
+							"main recorder hasn't stopped yet, lets try again"
+						);
+					this.smSonus.emit("stop");
 				}
 			);
 		});
 
-		this.ioClient.on("started", () => {
-			if (redebug) console.log("native reco started");
+		this.smSonus.on("started", () => {
+			if (redebug) console.log("recorder native reco started");
 		});
 	};
 
@@ -208,7 +242,7 @@ function recorder(smart_mirror_remote_port, filename) {
 			this.voiceClient.on("started", (error) => {
 				// pass it on
 				if (redebug) console.log("our recorder says it started ");
-				waitRunning("arecord", true, 1000).then(
+				waitRunning(this.recoProgram, true, 1000).then(
 					() => {
 						console.log("our recorder did start");
 						this.recording = true;
@@ -227,11 +261,11 @@ function recorder(smart_mirror_remote_port, filename) {
 				if (redebug) console.log(" check for our recorder stopped");
 				let self = this;
 				// 200ms quiet time
-				waitRunning("arecord", false, 1000).then(
+				waitRunning(this.recoProgram, false, 1000).then(
 					() => {
 						if (redebug) console.log(" restarting base reco");
 						// tell the smart mirror reco engine to resume now
-						self.ioClient.emit("start");
+						self.smSonus.emit("start");
 					},
 					() => {
 						console.log(" our recorder hasn't stopped yet");
@@ -282,7 +316,7 @@ recorder.prototype.open = function () {
 		this.resolve = resolve;
 		this.reject = reject;
 		// tool to talk to our consumer
-		this.Emitter = new EventEmitter();
+		this.Emitter = new _reEventEmitter();
 
 		if (redebug) console.log(" requesting port");
 		// ask for a range
@@ -298,7 +332,7 @@ recorder.prototype.open = function () {
 				if (redebug) console.log(" have available port=" + kwsPort);
 				// connect to the smart-mirror reco process
 				// io client to background sonus
-				self.ioClient = io.connect(self.host + ":" + this.sm_port);
+				self.smSonus = io.connect(self.host + ":" + this.sm_port);
 
 				// setup the handlers
 				self.init();
@@ -310,7 +344,7 @@ recorder.prototype.open = function () {
 				}, 8000);
 
 				// connect to the sonus process and get its config info
-				self.ioClient.emit("getinfo");
+				self.smSonus.emit("getinfo");
 				// we start idle
 				self.recording = false;
 			})
@@ -323,13 +357,13 @@ recorder.prototype.start = function () {
 	if (this.ready) {
 		// tell the background sonus to stop
 		// this will auto start our engine
-		this.ioClient.emit("stop");
+		this.smSonus.emit("stop");
 	}
 };
 // not sure what to do here
 recorder.prototype.stop = function () {
 	if (redebug) console.log("speech service requests stop");
-	this.ioClient.emit("start");
+	this.smSonus.emit("start");
 };
 // not sure what to do here
 recorder.prototype.close = function () {
