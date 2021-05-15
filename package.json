@@ -19,9 +19,9 @@
     "path": "^0.12.7",
     "prettier": "^2.0.5",
     "socket.io-client": "2.3.0",
-    "sonus": "git+https://github.com/sdetweil/sonus.git"
+    "waitprocess": "git+https://github.com/sdetweil/waitprocess.git"
   },
-  "dev-dependencies" :{
+  "dev-dependencies": {
     "electron-rebuild": "^1.11.0"
   }
 }

@@ -4,6 +4,7 @@
 const io = require("socket.io-client");
 const _reEventEmitter = require("events");
 const { spawn, exec, spawnSync } = require("child_process");
+const { waitRunning } = require("waitprocess");
 const getPort = require("get-port");
 const create_reco_process = true;
 const redebug = false;
@@ -26,7 +27,7 @@ function recorder(smart_mirror_remote_port, filename) {
 	// indicates raw or text output
 	this.rawFilename = filename;
 	this.recoProgram = "";
-
+	/*
 	const sleepAndCheck = (cmd, ms) => {
 		return new Promise((resolve, reject) => {
 			setTimeout(() => {
@@ -81,7 +82,7 @@ function recorder(smart_mirror_remote_port, filename) {
 											query +
 											" is not running now"
 									);
-								clearTimeout(timerHandle);
+								clearInterval(timerHandle);
 								resolve();
 								return;
 							}
@@ -100,7 +101,7 @@ function recorder(smart_mirror_remote_port, filename) {
 											query +
 											"' running"
 									);
-								clearTimeout(timerHandle);
+								clearInterval(timerHandle);
 								resolve();
 								return;
 							}
@@ -116,7 +117,7 @@ function recorder(smart_mirror_remote_port, filename) {
 										query +
 										"' was not found "
 								);
-							clearTimeout(timerHandle);
+							clearInterval(timerHandle);
 							reject("timeout");
 							return;
 						}
@@ -126,7 +127,7 @@ function recorder(smart_mirror_remote_port, filename) {
 			); // end setInterval
 		}); // end promise
 	};
-
+*/
 	this.init = function () {
 		this.smSonus.on("connected", (socket) => {
 			if (redebug) console.log("recorder connected to sm sonus");
